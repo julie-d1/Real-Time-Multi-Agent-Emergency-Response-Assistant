@@ -1,5 +1,4 @@
 # 🆘 **LifeSaver: Real-Time Multi-Agent Emergency Response Assistant**
-
 ---
 
 ## 🚨 **Overview**
