@@ -1,9 +1,5 @@
 # 🆘 **LifeSaver: Real-Time Multi-Agent Emergency Response Assistant**
 
-**Track:** Agents for Good
-**Author:** Julisa Delfin
-**Status:** Google AI Agents Intensive Capstone Project (2025)
-
 ---
 
 ## 🚨 **Overview**
@@ -315,16 +311,7 @@ It does **not** replace professional medical advice or emergency services.
 
 ---
 
-# 🎯 **Conclusion**
+## 👥 Contributors
 
-LifeSaver demonstrates the full power of multi-agent LLM systems in high-stakes, real-world scenarios. It showcases:
-
-✔ Multi-agent orchestration
-✔ Tool use
-✔ Sessions + memory
-✔ Long-running operations
-✔ Observability & evaluation
-✔ Gemini as backbone
-✔ Deployment readiness
-
-This project fulfills all scoring criteria for the Google AI Agents Intensive Capstone and highlights how agents can meaningfully assist people during life-critical moments.
+- **Julisa Delfin** – MS Data Science, DePaul University
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=flat&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/julisadelfin/)  
