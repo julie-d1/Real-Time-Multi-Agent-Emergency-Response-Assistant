@@ -222,18 +222,9 @@ lifesaver-emergency-agent/
 │  │  ├─ emt_report_agent.py
 │  ├─ tools/
 │  │  ├─ protocol_tool.py
-│  ├─ memory/
-│  │  ├─ session_store.py
-│  │  ├─ user_profile_store.py
-│  ├─ observability/
-│  │  ├─ logger.py
-│  │  ├─ metrics.py
 │  ├─ eval/
 │  │  ├─ eval_scenarios.json
 │  │  ├─ run_eval.py
-├─ notebooks/
-│  ├─ 01_end_to_end_demo.ipynb
-│  ├─ 02_evaluation_suite.ipynb
 ```
 
 ---
