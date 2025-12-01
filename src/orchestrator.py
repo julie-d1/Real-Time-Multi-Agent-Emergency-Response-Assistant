@@ -13,6 +13,7 @@ from src.agents.calming_agent import create_calming_agent
 from src.agents.emt_report_agent import create_emt_report_agent
 from src.tools.protocol import get_protocol
 from src.config import APP_NAME
+
 import json
 
 
@@ -42,6 +43,7 @@ class LifeSaverOrchestrator:
         self.calming_agent = create_calming_agent()
         self.emt_report_agent = create_emt_report_agent()
 
+        # Runners
         self.triage_runner = Runner(
             agent=self.triage_agent,
             app_name=APP_NAME + "_triage",
@@ -67,6 +69,41 @@ class LifeSaverOrchestrator:
             memory_service=self.memory_service,
         )
 
+    # -------------------------------
+    # Helper: run a runner & get text
+    # -------------------------------
+    def _run_and_get_text(
+        self,
+        runner: Runner,
+        session_id: str,
+        content: types.Content,
+    ) -> str:
+        """
+        Call runner.run(...) which yields events, and return the final text
+        of the final event (if any).
+        """
+        last_event_with_text = None
+
+        for event in runner.run(
+            user_id=session_id,
+            session_id=session_id,
+            new_message=content,
+        ):
+            # Keep track of events that actually have text content
+            if getattr(event, "content", None) and event.content.parts:
+                last_event_with_text = event
+
+        if last_event_with_text and last_event_with_text.content.parts:
+            for part in last_event_with_text.content.parts:
+                if hasattr(part, "text") and part.text and part.text != "None":
+                    return part.text
+
+        # Fallback if nothing usable came back
+        return ""
+
+    # -------------------------------
+    # Public API
+    # -------------------------------
     def start_session(self, session_id: str) -> LifeSaverContext:
         """
         Initialize a new LifeSaverContext for a given session_id.
@@ -83,30 +120,18 @@ class LifeSaverOrchestrator:
             parts=[types.Part(text=user_message)],
         )
 
-        triage_result = self.triage_runner.run(
-            user_id=ctx.session_id,
+        triage_text = self._run_and_get_text(
+            runner=self.triage_runner,
             session_id=ctx.session_id,
-            new_message=triage_content,
+            content=triage_content,
         )
 
-        ctx.events.append(
-            {
-                "type": "user_message",
-                "content": user_message,
-            }
-        )
-        ctx.events.append(
-            {
-                "type": "triage_output_raw",
-                "content": triage_result.output_text,
-            }
-        )
+        ctx.events.append({"type": "user_message", "content": user_message})
+        ctx.events.append({"type": "triage_output_raw", "content": triage_text})
 
-        # Parse JSON from the triage agent
         try:
-            triage_json = json.loads(triage_result.output_text)
+            triage_json = json.loads(triage_text)
         except json.JSONDecodeError:
-            # Fallback if the model misbehaves
             triage_json = {
                 "emergency_type": None,
                 "confidence": 0.0,
@@ -122,7 +147,6 @@ class LifeSaverOrchestrator:
         )
 
         ctx.emergency_type = triage_json.get("emergency_type")
-
         if ctx.emergency_type is None:
             # Last-resort fallback to something safe-ish
             ctx.emergency_type = "unconscious_but_breathing"
@@ -137,7 +161,9 @@ class LifeSaverOrchestrator:
         )
 
         if protocol_resp["status"] != "success":
-            raise RuntimeError(f"Protocol lookup failed: {protocol_resp['error_message']}")
+            raise RuntimeError(
+                f"Protocol lookup failed: {protocol_resp['error_message']}"
+            )
 
         ctx.protocol = protocol_resp["data"]
         ctx.current_step_index = 0
@@ -174,20 +200,20 @@ class LifeSaverOrchestrator:
 
         ctx.events.append({"type": "user_update", "content": user_update})
 
-        # Instruction agent call
+        # --- Instruction agent ---
         instruction_content = types.Content(
             role="user",
             parts=[types.Part(text=json.dumps(payload))],
         )
 
-        instruction_result = self.instruction_runner.run(
-            user_id=ctx.session_id,
+        instruction_text = self._run_and_get_text(
+            runner=self.instruction_runner,
             session_id=ctx.session_id,
-            new_message=instruction_content,
+            content=instruction_content,
         )
 
         ctx.events.append(
-            {"type": "instruction_output", "content": instruction_result.output_text}
+            {"type": "instruction_output", "content": instruction_text}
         )
 
         next_step_index = min(ctx.current_step_index + 1, len(steps) - 1)
@@ -197,11 +223,12 @@ class LifeSaverOrchestrator:
         ctx.current_step_index = next_step_index
         ctx.done = done
 
-        # Calming agent call
+        # --- Calming agent ---
         calming_prompt = (
             f"User said: {user_update}. "
             f"They are currently on step index {next_step_index} "
-            f"of protocol '{ctx.protocol['title']}'."
+            f"of protocol '{ctx.protocol['title']}'. "
+            "Respond with one short, empathetic sentence."
         )
 
         calming_content = types.Content(
@@ -209,20 +236,17 @@ class LifeSaverOrchestrator:
             parts=[types.Part(text=calming_prompt)],
         )
 
-        calming_result = self.calming_runner.run(
-            user_id=ctx.session_id,
+        calming_text = self._run_and_get_text(
+            runner=self.calming_runner,
             session_id=ctx.session_id,
-            new_message=calming_content,
+            content=calming_content,
         )
 
-        calming_message = calming_result.output_text
-        ctx.events.append(
-            {"type": "calming_output", "content": calming_message}
-        )
+        ctx.events.append({"type": "calming_output", "content": calming_text})
 
         return {
             "instruction_message": instruction_message,
-            "calming_message": calming_message,
+            "calming_message": calming_text,
             "done": ctx.done,
             "ctx": ctx,
         }
@@ -238,12 +262,11 @@ class LifeSaverOrchestrator:
             parts=[types.Part(text=events_text)],
         )
 
-        emt_result = self.emt_runner.run(
-            user_id=ctx.session_id,
+        emt_text = self._run_and_get_text(
+            runner=self.emt_runner,
             session_id=ctx.session_id,
-            new_message=emt_content,
+            content=emt_content,
         )
 
-        report = emt_result.output_text
-        ctx.events.append({"type": "emt_report", "content": report})
-        return report
+        ctx.events.append({"type": "emt_report", "content": emt_text})
+        return emt_text
