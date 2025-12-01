@@ -1,0 +1,79 @@
+[
+  {
+    "id": "cardiac_arrest_01",
+    "description": "Adult suddenly collapses, no breathing.",
+    "first_message": "My dad just collapsed on the floor and he's not breathing.",
+    "user_updates": [
+      "I'm next to him.",
+      "I'm doing the chest compressions you told me.",
+      "The ambulance just arrived."
+    ],
+    "expected_emergency_type": "cardiac_arrest",
+    "expected_actions_include": [
+      "chest compressions",
+      "call emergency services"
+    ]
+  },
+  {
+    "id": "choking_01",
+    "description": "Adult choking, no air, cannot speak.",
+    "first_message": "My friend is choking and can't talk or breathe.",
+    "user_updates": [
+      "He's grabbing his throat.",
+      "I'm standing behind him now.",
+      "I'm doing abdominal thrusts.",
+      "He coughed and something came out."
+    ],
+    "expected_emergency_type": "choking",
+    "expected_actions_include": [
+      "abdominal thrusts",
+      "if the person becomes unresponsive"
+    ]
+  },
+  {
+    "id": "stroke_01",
+    "description": "Classic FAST stroke symptoms.",
+    "first_message": "My mom suddenly can't talk clearly and one side of her face is drooping.",
+    "user_updates": [
+      "Her smile is uneven.",
+      "One arm keeps drifting down.",
+      "We are still waiting for the ambulance."
+    ],
+    "expected_emergency_type": "possible_stroke",
+    "expected_actions_include": [
+      "call emergency services",
+      "time symptoms started",
+      "FAST"
+    ]
+  },
+  {
+    "id": "anaphylaxis_01",
+    "description": "Severe allergic reaction.",
+    "first_message": "My sister's lips are swelling and she's having trouble breathing after eating peanuts.",
+    "user_updates": [
+      "We have an EpiPen.",
+      "I just used the EpiPen on her thigh.",
+      "She's still having trouble but maybe slightly better."
+    ],
+    "expected_emergency_type": "anaphylaxis",
+    "expected_actions_include": [
+      "epinephrine auto-injector",
+      "call emergency services"
+    ]
+  },
+  {
+    "id": "unconscious_breathing_01",
+    "description": "Person unconscious but breathing.",
+    "first_message": "There's a man lying on the sidewalk, unconscious but he is breathing.",
+    "user_updates": [
+      "His chest is moving.",
+      "I put him on his side like you said.",
+      "The ambulance is on the way."
+    ],
+    "expected_emergency_type": "unconscious_but_breathing",
+    "expected_actions_include": [
+      "recovery position",
+      "check breathing"
+    ]
+  }
+]
