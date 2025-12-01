@@ -101,14 +101,16 @@ class LifeSaverOrchestrator:
         # Fallback if nothing usable came back
         return ""
 
-    # -------------------------------
-    # Public API
-    # -------------------------------
     def start_session(self, session_id: str) -> LifeSaverContext:
-        """
-        Initialize a new LifeSaverContext for a given session_id.
-        """
-        return LifeSaverContext(session_id=session_id)
+    """
+    Initialize a new LifeSaverContext for a given session_id
+    and register the session with the ADK session service.
+    """
+    self.session_service.create_session(
+        user_id=session_id,
+        session_id=session_id,
+    )
+    return LifeSaverContext(session_id=session_id)
 
     def triage(self, ctx: LifeSaverContext, user_message: str) -> LifeSaverContext:
         """
