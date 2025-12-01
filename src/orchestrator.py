@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional
 
 from google.genai import types
 from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
 
 from src.agents.triage_agent import create_triage_agent
 from src.agents.instruction_agent import create_instruction_agent
@@ -10,7 +11,6 @@ from src.agents.calming_agent import create_calming_agent
 from src.agents.emt_report_agent import create_emt_report_agent
 from src.tools.protocol import get_protocol
 from src.config import APP_NAME
-
 import json
 
 
@@ -28,94 +28,122 @@ class LifeSaverOrchestrator:
     """
     High-level orchestrator for the LifeSaver multi-agent workflow.
 
-    IMPORTANT:
-    - We let ADK manage its own internal session storage.
-    - We still pass a session_id to Runner.run, but we do NOT use a custom SessionService.
+    This version is simplified and ADK-friendly:
+    - One shared InMemorySessionService.
+    - One Runner per agent.
+    - An async setup_sessions(...) you call once from the notebook.
     """
 
     def __init__(self) -> None:
+        # Shared session service for all runners
+        self.session_service = InMemorySessionService()
+
         # Core agents
         self.triage_agent = create_triage_agent()
         self.instruction_agent = create_instruction_agent()
         self.calming_agent = create_calming_agent()
         self.emt_report_agent = create_emt_report_agent()
 
-        # Simple runners, no explicit SessionService / MemoryService
+        # One Runner per agent; NOTE: session_service is REQUIRED
         self.triage_runner = Runner(
             agent=self.triage_agent,
             app_name=APP_NAME + "_triage",
+            session_service=self.session_service,
         )
         self.instruction_runner = Runner(
             agent=self.instruction_agent,
             app_name=APP_NAME + "_instruction",
+            session_service=self.session_service,
         )
         self.calming_runner = Runner(
             agent=self.calming_agent,
             app_name=APP_NAME + "_calming",
+            session_service=self.session_service,
         )
         self.emt_runner = Runner(
             agent=self.emt_report_agent,
             app_name=APP_NAME + "_emt",
+            session_service=self.session_service,
         )
 
-    # -------------------------------
-    # Helper: run a runner & get text
-    # -------------------------------
+    # ---------- Session setup ----------
+
+    async def setup_sessions(self, user_id: str, session_id: str) -> None:
+        """
+        Create ADK sessions for all four runners.
+
+        Call this ONCE in the notebook:
+            await orchestrator.setup_sessions(user_id=session_id, session_id=session_id)
+        """
+        app_names = [
+            APP_NAME + "_triage",
+            APP_NAME + "_instruction",
+            APP_NAME + "_calming",
+            APP_NAME + "_emt",
+        ]
+
+        for app_name in app_names:
+            await self.session_service.create_session(
+                app_name=app_name,
+                user_id=user_id,
+                session_id=session_id,
+            )
+
+    def start_session(self, session_id: str) -> LifeSaverContext:
+        """
+        Just create our high-level context object.
+        All ADK sessions must already be created via setup_sessions(...).
+        """
+        return LifeSaverContext(session_id=session_id)
+
+    # ---------- Internal helper ----------
+
     def _run_and_get_text(
         self,
         runner: Runner,
         session_id: str,
-        content: types.Content,
+        content_text: str,
     ) -> str:
         """
-        Call runner.run(...) which yields events, and return the final text
-        of the final event (if any).
+        Synchronously run an ADK Runner and return the final text response.
+        Uses the synchronous generator API: runner.run(...).
         """
-        last_event_with_text = None
+        content = types.Content(
+            role="user",
+            parts=[types.Part(text=content_text)],
+        )
 
-        # ADK requires session_id; we let it manage the actual session internally.
+        final_text = ""
+
         for event in runner.run(
             user_id=session_id,
             session_id=session_id,
             new_message=content,
         ):
-            if getattr(event, "content", None) and event.content.parts:
-                last_event_with_text = event
+            if event.is_final_response() and event.content and event.content.parts:
+                final_text = event.content.parts[0].text or ""
 
-        if last_event_with_text and last_event_with_text.content.parts:
-            for part in last_event_with_text.content.parts:
-                if hasattr(part, "text") and part.text and part.text != "None":
-                    return part.text
+        return final_text
 
-        return ""
-
-    # -------------------------------
-    # Public API
-    # -------------------------------
-    def start_session(self, session_id: str) -> LifeSaverContext:
-        """
-        Initialize a new LifeSaverContext for a given session_id.
-        We are not manually managing ADK sessions here; Runner handles it.
-        """
-        return LifeSaverContext(session_id=session_id)
+    # ---------- Public workflow steps ----------
 
     def triage(self, ctx: LifeSaverContext, user_message: str) -> LifeSaverContext:
         """
         Run triage on the first user message.
         """
-        triage_content = types.Content(
-            role="user",
-            parts=[types.Part(text=user_message)],
+        ctx.events.append(
+            {"type": "user_message", "content": user_message}
         )
 
         triage_text = self._run_and_get_text(
             runner=self.triage_runner,
             session_id=ctx.session_id,
-            content=triage_content,
+            content_text=user_message,
         )
 
-        ctx.events.append({"type": "user_message", "content": user_message})
-        ctx.events.append({"type": "triage_output_raw", "content": triage_text})
+        ctx.events.append(
+            {"type": "triage_output_raw", "content": triage_text}
+        )
 
         # Parse JSON from the triage agent
         try:
@@ -129,30 +157,19 @@ class LifeSaverOrchestrator:
             }
 
         ctx.events.append(
-            {
-                "type": "triage_output_parsed",
-                "content": triage_json,
-            }
+            {"type": "triage_output_parsed", "content": triage_json}
         )
 
-        ctx.emergency_type = triage_json.get("emergency_type")
-        if ctx.emergency_type is None:
-            # Last-resort fallback to something safe-ish
-            ctx.emergency_type = "unconscious_but_breathing"
+        ctx.emergency_type = triage_json.get("emergency_type") or "unconscious_but_breathing"
 
-        # Fetch protocol for this emergency type via the tool.
+        # Fetch protocol for this emergency type via our tool
         protocol_resp = get_protocol(ctx.emergency_type)
         ctx.events.append(
-            {
-                "type": "protocol_lookup",
-                "content": protocol_resp,
-            }
+            {"type": "protocol_lookup", "content": protocol_resp}
         )
 
         if protocol_resp["status"] != "success":
-            raise RuntimeError(
-                f"Protocol lookup failed: {protocol_resp['error_message']}"
-            )
+            raise RuntimeError(f"Protocol lookup failed: {protocol_resp['error_message']}")
 
         ctx.protocol = protocol_resp["data"]
         ctx.current_step_index = 0
@@ -179,6 +196,8 @@ class LifeSaverOrchestrator:
             raise RuntimeError("Protocol is not set. Did you forget to run triage()?")
 
         steps = ctx.protocol["steps"]
+        ctx.events.append({"type": "user_update", "content": user_update})
+
         payload = {
             "emergency_type": ctx.emergency_type,
             "protocol_title": ctx.protocol["title"],
@@ -187,25 +206,16 @@ class LifeSaverOrchestrator:
             "user_update": user_update,
         }
 
-        ctx.events.append({"type": "user_update", "content": user_update})
-
-        # --- Instruction agent ---
-        instruction_content = types.Content(
-            role="user",
-            parts=[types.Part(text=json.dumps(payload))],
-        )
-
+        # Instruction agent call
         instruction_text = self._run_and_get_text(
             runner=self.instruction_runner,
             session_id=ctx.session_id,
-            content=instruction_content,
+            content_text=json.dumps(payload),
         )
-
         ctx.events.append(
-            {"type": "instruction_output", "content": instruction_text}
+            {"type": "instruction_output_raw", "content": instruction_text}
         )
 
-        # For now we keep step logic simple (we could also parse JSON from instruction_text)
         next_step_index = min(ctx.current_step_index + 1, len(steps) - 1)
         done = next_step_index == len(steps) - 1
         instruction_message = steps[next_step_index]
@@ -213,30 +223,26 @@ class LifeSaverOrchestrator:
         ctx.current_step_index = next_step_index
         ctx.done = done
 
-        # --- Calming agent ---
+        # Calming agent call
         calming_prompt = (
-            f"User said: {user_update}. "
-            f"They are currently on step index {next_step_index} "
+            f"The user said: '{user_update}'. "
+            f"They are on step index {next_step_index} "
             f"of protocol '{ctx.protocol['title']}'. "
-            "Respond with one short, empathetic sentence."
+            "Respond with a short, calm reassurance message."
         )
 
-        calming_content = types.Content(
-            role="user",
-            parts=[types.Part(text=calming_prompt)],
-        )
-
-        calming_text = self._run_and_get_text(
+        calming_message = self._run_and_get_text(
             runner=self.calming_runner,
             session_id=ctx.session_id,
-            content=calming_content,
+            content_text=calming_prompt,
         )
-
-        ctx.events.append({"type": "calming_output", "content": calming_text})
+        ctx.events.append(
+            {"type": "calming_output_raw", "content": calming_message}
+        )
 
         return {
             "instruction_message": instruction_message,
-            "calming_message": calming_text,
+            "calming_message": calming_message,
             "done": ctx.done,
             "ctx": ctx,
         }
@@ -246,17 +252,10 @@ class LifeSaverOrchestrator:
         Summarize the entire session as a handoff report.
         """
         events_text = json.dumps(ctx.events, indent=2)
-
-        emt_content = types.Content(
-            role="user",
-            parts=[types.Part(text=events_text)],
-        )
-
-        emt_text = self._run_and_get_text(
+        report = self._run_and_get_text(
             runner=self.emt_runner,
             session_id=ctx.session_id,
-            content=emt_content,
+            content_text=events_text,
         )
-
-        ctx.events.append({"type": "emt_report", "content": emt_text})
-        return emt_text
+        ctx.events.append({"type": "emt_report", "content": report})
+        return report
