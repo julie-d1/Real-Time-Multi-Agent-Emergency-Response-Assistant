@@ -2,10 +2,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 
 from google.genai import types
-
 from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from google.adk.memory import InMemoryMemoryService
 
 from src.agents.triage_agent import create_triage_agent
 from src.agents.instruction_agent import create_instruction_agent
@@ -30,45 +27,40 @@ class LifeSaverContext:
 class LifeSaverOrchestrator:
     """
     High-level orchestrator for the LifeSaver multi-agent workflow.
+
+    IMPORTANT:
+    - We let ADK manage its own internal session storage.
+    - We still pass a session_id to Runner.run, but we do NOT use a custom SessionService.
     """
 
     def __init__(self) -> None:
-        # Session + memory services
-        self.session_service = InMemorySessionService()
-        self.memory_service = InMemoryMemoryService()
-
         # Core agents
         self.triage_agent = create_triage_agent()
         self.instruction_agent = create_instruction_agent()
         self.calming_agent = create_calming_agent()
         self.emt_report_agent = create_emt_report_agent()
 
-        # Runners
+        # Simple runners, no explicit SessionService / MemoryService
         self.triage_runner = Runner(
             agent=self.triage_agent,
             app_name=APP_NAME + "_triage",
-            session_service=self.session_service,
-            memory_service=self.memory_service,
         )
         self.instruction_runner = Runner(
             agent=self.instruction_agent,
             app_name=APP_NAME + "_instruction",
-            session_service=self.session_service,
-            memory_service=self.memory_service,
         )
         self.calming_runner = Runner(
             agent=self.calming_agent,
             app_name=APP_NAME + "_calming",
-            session_service=self.session_service,
-            memory_service=self.memory_service,
         )
         self.emt_runner = Runner(
             agent=self.emt_report_agent,
             app_name=APP_NAME + "_emt",
-            session_service=self.session_service,
-            memory_service=self.memory_service,
         )
 
+    # -------------------------------
+    # Helper: run a runner & get text
+    # -------------------------------
     def _run_and_get_text(
         self,
         runner: Runner,
@@ -81,8 +73,10 @@ class LifeSaverOrchestrator:
         """
         last_event_with_text = None
 
+        # ADK requires session_id; we let it manage the actual session internally.
         for event in runner.run(
-            user_id=session_id,   
+            user_id=session_id,
+            session_id=session_id,
             new_message=content,
         ):
             if getattr(event, "content", None) and event.content.parts:
@@ -95,10 +89,13 @@ class LifeSaverOrchestrator:
 
         return ""
 
+    # -------------------------------
+    # Public API
+    # -------------------------------
     def start_session(self, session_id: str) -> LifeSaverContext:
         """
         Initialize a new LifeSaverContext for a given session_id.
-        We let ADK handle its own internal session management.
+        We are not manually managing ADK sessions here; Runner handles it.
         """
         return LifeSaverContext(session_id=session_id)
 
@@ -106,7 +103,6 @@ class LifeSaverOrchestrator:
         """
         Run triage on the first user message.
         """
-
         triage_content = types.Content(
             role="user",
             parts=[types.Part(text=user_message)],
@@ -121,6 +117,7 @@ class LifeSaverOrchestrator:
         ctx.events.append({"type": "user_message", "content": user_message})
         ctx.events.append({"type": "triage_output_raw", "content": triage_text})
 
+        # Parse JSON from the triage agent
         try:
             triage_json = json.loads(triage_text)
         except json.JSONDecodeError:
@@ -208,6 +205,7 @@ class LifeSaverOrchestrator:
             {"type": "instruction_output", "content": instruction_text}
         )
 
+        # For now we keep step logic simple (we could also parse JSON from instruction_text)
         next_step_index = min(ctx.current_step_index + 1, len(steps) - 1)
         done = next_step_index == len(steps) - 1
         instruction_message = steps[next_step_index]
