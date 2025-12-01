@@ -104,12 +104,16 @@ class LifeSaverOrchestrator:
     def start_session(self, session_id: str) -> LifeSaverContext:
         """
         Initialize a new LifeSaverContext for a given session_id
-        and register the session with the ADK session service.
+        and register the session with the ADK SessionService.
         """
+    
+        # Register the session with ADK
         self.session_service.create_session(
-            user_id=session_id,
-            session_id=session_id,
+            app_name=APP_NAME,          
+            user_id=session_id,         
+            session_id=session_id,      
         )
+    
         return LifeSaverContext(session_id=session_id)
 
     def triage(self, ctx: LifeSaverContext, user_message: str) -> LifeSaverContext:
