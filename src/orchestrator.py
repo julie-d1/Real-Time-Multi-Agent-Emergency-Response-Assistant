@@ -91,14 +91,35 @@ class LifeSaverOrchestrator:
         )
         ctx.events.append(
             {
-                "type": "triage_output",
+                "type": "triage_output_raw",
                 "content": triage_result.output_text,
             }
         )
 
-        # triage_result.output_text should be JSON according to schema;
-        triage_json = json.loads(triage_result.output_text)
+        # Parse JSON from the triage agent
+        try:
+            triage_json = json.loads(triage_result.output_text)
+        except json.JSONDecodeError:
+            # Fallback if the model misbehaves
+            triage_json = {
+                "emergency_type": None,
+                "confidence": 0.0,
+                "summary": "Failed to parse triage JSON.",
+                "red_flags": [],
+            }
+
+        ctx.events.append(
+            {
+                "type": "triage_output_parsed",
+                "content": triage_json,
+            }
+        )
+
         ctx.emergency_type = triage_json.get("emergency_type")
+
+        if ctx.emergency_type is None:
+            # Last-resort fallback to something safe-ish
+            ctx.emergency_type = "unconscious_but_breathing"
 
         # Fetch protocol for this emergency type via the tool.
         protocol_resp = get_protocol(ctx.emergency_type)
