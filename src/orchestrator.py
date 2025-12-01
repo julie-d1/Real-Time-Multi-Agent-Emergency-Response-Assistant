@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
+import asyncio
 
 from google.genai import types
 
@@ -104,16 +105,23 @@ class LifeSaverOrchestrator:
     def start_session(self, session_id: str) -> LifeSaverContext:
         """
         Initialize a new LifeSaverContext for a given session_id
-        and register the session with the ADK SessionService.
+        and register the session with the ADK session service.
         """
-    
-        # Register the session with ADK
-        self.session_service.create_session(
-            app_name=APP_NAME,          
-            user_id=session_id,         
-            session_id=session_id,      
+        # Create the ADK session 
+        asyncio.run(
+            self.session_service.create_session(
+                app_name=APP_NAME,
+                user_id=session_id,
+                session_id=session_id,
+                state={
+                    "emergency_type": None,
+                    "protocol": None,
+                    "current_step_index": 0,
+                    "events": [],
+                },
+            )
         )
-    
+
         return LifeSaverContext(session_id=session_id)
 
     def triage(self, ctx: LifeSaverContext, user_message: str) -> LifeSaverContext:
