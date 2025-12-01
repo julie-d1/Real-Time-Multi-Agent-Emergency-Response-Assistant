@@ -239,6 +239,11 @@ class LifeSaverOrchestrator:
         ctx.events.append(
             {"type": "calming_output_raw", "content": calming_message}
         )
+        if not calming_message or not calming_message.strip():
+            calming_message = (
+                "You’re doing the right thing. Keep going with the current step; "
+                "help is on the way."
+            )
 
         return {
             "instruction_message": instruction_message,
