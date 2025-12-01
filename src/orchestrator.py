@@ -1,9 +1,11 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 
-from google.adk.runners import Runner  
-from google.adk.sessions import InMemorySessionService  
-from google.adk.memory import InMemoryMemoryService 
+from google.genai import types
+
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.adk.memory import InMemoryMemoryService
 
 from src.agents.triage_agent import create_triage_agent
 from src.agents.instruction_agent import create_instruction_agent
@@ -27,9 +29,6 @@ class LifeSaverContext:
 class LifeSaverOrchestrator:
     """
     High-level orchestrator for the LifeSaver multi-agent workflow.
-
-    This class is intentionally simple and explicit so it's easy to
-    reason about and extend.
     """
 
     def __init__(self) -> None:
@@ -78,9 +77,16 @@ class LifeSaverOrchestrator:
         """
         Run triage on the first user message.
         """
+
+        triage_content = types.Content(
+            role="user",
+            parts=[types.Part(text=user_message)],
+        )
+
         triage_result = self.triage_runner.run(
+            user_id=ctx.session_id,
             session_id=ctx.session_id,
-            user_input=user_message,
+            new_message=triage_content,
         )
 
         ctx.events.append(
@@ -168,11 +174,18 @@ class LifeSaverOrchestrator:
 
         ctx.events.append({"type": "user_update", "content": user_update})
 
-        # Call instruction agent
-        instruction_result = self.instruction_runner.run(
-            session_id=ctx.session_id,
-            user_input=str(payload),
+        # Instruction agent call
+        instruction_content = types.Content(
+            role="user",
+            parts=[types.Part(text=json.dumps(payload))],
         )
+
+        instruction_result = self.instruction_runner.run(
+            user_id=ctx.session_id,
+            session_id=ctx.session_id,
+            new_message=instruction_content,
+        )
+
         ctx.events.append(
             {"type": "instruction_output", "content": instruction_result.output_text}
         )
@@ -184,11 +197,24 @@ class LifeSaverOrchestrator:
         ctx.current_step_index = next_step_index
         ctx.done = done
 
-        # Call calming agent
-        calming_result = self.calming_runner.run(
-            session_id=ctx.session_id,
-            user_input=f"User said: {user_update}. They are on step {next_step_index}.",
+        # Calming agent call
+        calming_prompt = (
+            f"User said: {user_update}. "
+            f"They are currently on step index {next_step_index} "
+            f"of protocol '{ctx.protocol['title']}'."
         )
+
+        calming_content = types.Content(
+            role="user",
+            parts=[types.Part(text=calming_prompt)],
+        )
+
+        calming_result = self.calming_runner.run(
+            user_id=ctx.session_id,
+            session_id=ctx.session_id,
+            new_message=calming_content,
+        )
+
         calming_message = calming_result.output_text
         ctx.events.append(
             {"type": "calming_output", "content": calming_message}
@@ -205,11 +231,19 @@ class LifeSaverOrchestrator:
         """
         Summarize the entire session as a handoff report.
         """
-        events_text = str(ctx.events) 
-        emt_result = self.emt_runner.run(
-            session_id=ctx.session_id,
-            user_input=events_text,
+        events_text = json.dumps(ctx.events, indent=2)
+
+        emt_content = types.Content(
+            role="user",
+            parts=[types.Part(text=events_text)],
         )
+
+        emt_result = self.emt_runner.run(
+            user_id=ctx.session_id,
+            session_id=ctx.session_id,
+            new_message=emt_content,
+        )
+
         report = emt_result.output_text
         ctx.events.append({"type": "emt_report", "content": report})
         return report
