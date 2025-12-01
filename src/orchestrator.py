@@ -11,6 +11,7 @@ from src.agents.calming_agent import create_calming_agent
 from src.agents.emt_report_agent import create_emt_report_agent
 from src.tools.protocol_tool import get_protocol
 from src.config import APP_NAME
+import json
 
 
 @dataclass
@@ -96,7 +97,8 @@ class LifeSaverOrchestrator:
         )
 
         # triage_result.output_text should be JSON according to schema;
-        ctx.emergency_type = "cardiac_arrest"  
+        triage_json = json.loads(triage_result.output_text)
+        ctx.emergency_type = triage_json.get("emergency_type")
 
         # Fetch protocol for this emergency type via the tool.
         protocol_resp = get_protocol(ctx.emergency_type)
