@@ -1,6 +1,6 @@
-from typing import Dict, Any
-from google.adk.agents import LlmAgent  
+from typing import Dict, Any 
 from google.genai import types  
+from google.adk.agents import LlmAgent 
 from src.config import DEFAULT_MODEL, EMERGENCY_TYPES
 
 
@@ -27,30 +27,14 @@ Your job:
    - summary: short natural language summary
    - red_flags: list of strings
 
-Be concise and do not include any other text besides the JSON.
+CRITICAL RULES:
+- Output MUST be valid JSON.
+- Do not include any extra text, apologies, or explanations outside the JSON.
 """
-
-    response_schema = types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "emergency_type": types.Schema(
-                type=types.Type.STRING,
-                enum=EMERGENCY_TYPES,
-            ),
-            "confidence": types.Schema(type=types.Type.NUMBER),
-            "summary": types.Schema(type=types.Type.STRING),
-            "red_flags": types.Schema(
-                type=types.Type.ARRAY,
-                items=types.Schema(type=types.Type.STRING),
-            ),
-        },
-        required=["emergency_type", "confidence", "summary"],
-    )
 
     triage_agent = LlmAgent(
         model=DEFAULT_MODEL,
         instruction=instruction,
-        response_schema=response_schema,
         name="triage_agent",
     )
 
