@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
-import asyncio
 
 from google.genai import types
 
@@ -70,9 +69,6 @@ class LifeSaverOrchestrator:
             memory_service=self.memory_service,
         )
 
-    # -------------------------------
-    # Helper: run a runner & get text
-    # -------------------------------
     def _run_and_get_text(
         self,
         runner: Runner,
@@ -86,11 +82,9 @@ class LifeSaverOrchestrator:
         last_event_with_text = None
 
         for event in runner.run(
-            user_id=session_id,
-            session_id=session_id,
+            user_id=session_id,   
             new_message=content,
         ):
-            # Keep track of events that actually have text content
             if getattr(event, "content", None) and event.content.parts:
                 last_event_with_text = event
 
@@ -99,29 +93,13 @@ class LifeSaverOrchestrator:
                 if hasattr(part, "text") and part.text and part.text != "None":
                     return part.text
 
-        # Fallback if nothing usable came back
         return ""
 
     def start_session(self, session_id: str) -> LifeSaverContext:
         """
-        Initialize a new LifeSaverContext for a given session_id
-        and register the session with the ADK session service.
+        Initialize a new LifeSaverContext for a given session_id.
+        We let ADK handle its own internal session management.
         """
-        # Create the ADK session 
-        asyncio.run(
-            self.session_service.create_session(
-                app_name=APP_NAME,
-                user_id=session_id,
-                session_id=session_id,
-                state={
-                    "emergency_type": None,
-                    "protocol": None,
-                    "current_step_index": 0,
-                    "events": [],
-                },
-            )
-        )
-
         return LifeSaverContext(session_id=session_id)
 
     def triage(self, ctx: LifeSaverContext, user_message: str) -> LifeSaverContext:
