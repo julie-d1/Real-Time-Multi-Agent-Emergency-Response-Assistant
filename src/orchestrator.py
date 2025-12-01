@@ -9,7 +9,7 @@ from src.agents.triage_agent import create_triage_agent
 from src.agents.instruction_agent import create_instruction_agent
 from src.agents.calming_agent import create_calming_agent
 from src.agents.emt_report_agent import create_emt_report_agent
-from src.tools.protocol_tool import get_protocol
+from src.tools.protocol import get_protocol
 from src.config import APP_NAME
 import json
 
