@@ -1,6 +1,7 @@
-from google.adk.agents import LlmAgent  
 from google.genai import types  
+from google.adk.agents import LlmAgent 
 from src.config import DEFAULT_MODEL
+
 
 def create_instruction_agent() -> LlmAgent:
     """
@@ -12,16 +13,16 @@ def create_instruction_agent() -> LlmAgent:
       - the current step index,
       - the user's last response
 
-    And outputs:
-      - next_step_message
-      - next_step_index
-      - done (bool)
+    And outputs JSON with:
+      - next_step_message: str
+      - next_step_index: int
+      - done: bool
     """
 
     instruction = """
 You are a calm, clear emergency instruction assistant.
 
-You will be given:
+You will be given (as a JSON-like string):
 - emergency_type: string
 - protocol_title: string
 - steps: list of step strings in order
@@ -31,27 +32,21 @@ You will be given:
 Your job:
 1. Decide whether we should stay on this step, repeat, or move to the next step.
 2. Provide a clear, short instruction message for the user (one or two sentences).
-3. Mark done=True only when all steps are completed OR when emergency responders arrive.
+3. Set done=true only when:
+   - all steps are completed, OR
+   - emergency responders have arrived and taken over.
 
-IMPORTANT:
-- Remain calm, encouraging, and precise.
-- Do NOT add medical procedures that are not in the provided steps.
+You MUST return ONLY a valid JSON object with exactly these fields:
+- next_step_index: integer
+- done: boolean
+- next_step_message: string
+
+Do NOT include any other text before or after the JSON.
 """
-
-    response_schema = types.Schema(
-        type=types.Type.OBJECT,
-        properties={
-            "next_step_index": types.Schema(type=types.Type.INTEGER),
-            "done": types.Schema(type=types.Type.BOOLEAN),
-            "next_step_message": types.Schema(type=types.Type.STRING),
-        },
-        required=["next_step_index", "done", "next_step_message"],
-    )
 
     instruction_agent = LlmAgent(
         model=DEFAULT_MODEL,
         instruction=instruction,
-        response_schema=response_schema,
         name="instruction_agent",
     )
 
