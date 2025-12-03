@@ -14,6 +14,8 @@ from src.config import APP_NAME
 import json
 
 
+# ---------------------- Context dataclass ---------------------- #
+
 @dataclass
 class LifeSaverContext:
     session_id: str
@@ -24,27 +26,29 @@ class LifeSaverContext:
     events: List[Dict[str, Any]] = field(default_factory=list)
 
 
+# ---------------------- Orchestrator --------------------------- #
+
 class LifeSaverOrchestrator:
     """
     High-level orchestrator for the LifeSaver multi-agent workflow.
 
-    This version is simplified and ADK-friendly:
-    - One shared InMemorySessionService.
+    - Uses one shared InMemorySessionService.
     - One Runner per agent.
-    - An async setup_sessions(...) you call once from the notebook.
+    - You must call `await setup_sessions(user_id, session_id)` ONCE
+      before using triage / next_instruction / generate_emt_report.
     """
 
     def __init__(self) -> None:
         # Shared session service for all runners
         self.session_service = InMemorySessionService()
 
-        # Core agents
+        # Agents
         self.triage_agent = create_triage_agent()
         self.instruction_agent = create_instruction_agent()
         self.calming_agent = create_calming_agent()
         self.emt_report_agent = create_emt_report_agent()
 
-        # One Runner per agent; NOTE: session_service is REQUIRED
+        # Runners (session_service is REQUIRED)
         self.triage_runner = Runner(
             agent=self.triage_agent,
             app_name=APP_NAME + "_triage",
@@ -66,13 +70,13 @@ class LifeSaverOrchestrator:
             session_service=self.session_service,
         )
 
-    # ---------- Session setup ----------
+    # ---------- Session setup (call once) ----------
 
     async def setup_sessions(self, user_id: str, session_id: str) -> None:
         """
         Create ADK sessions for all four runners.
 
-        Call this ONCE in the notebook:
+        Call ONCE in the notebook:
             await orchestrator.setup_sessions(user_id=session_id, session_id=session_id)
         """
         app_names = [
@@ -91,12 +95,12 @@ class LifeSaverOrchestrator:
 
     def start_session(self, session_id: str) -> LifeSaverContext:
         """
-        Just create our high-level context object.
-        All ADK sessions must already be created via setup_sessions(...).
+        Just returns our high-level context object.
+        (Assumes setup_sessions(...) has already been called.)
         """
         return LifeSaverContext(session_id=session_id)
 
-    # ---------- Internal helper ----------
+    # ---------- Internal helper: run a Runner synchronously ----------
 
     def _run_and_get_text(
         self,
@@ -105,8 +109,10 @@ class LifeSaverOrchestrator:
         content_text: str,
     ) -> str:
         """
-        Synchronously run an ADK Runner and return the final text response.
-        Uses the synchronous generator API: runner.run(...).
+        Run an ADK Runner synchronously and return the final text response.
+
+        Uses runner.run(...) (a blocking generator), so NO asyncio.run()
+        in the notebook – avoids nested event loop issues.
         """
         content = types.Content(
             role="user",
@@ -121,7 +127,9 @@ class LifeSaverOrchestrator:
             new_message=content,
         ):
             if event.is_final_response() and event.content and event.content.parts:
-                final_text = event.content.parts[0].text or ""
+                part_text = event.content.parts[0].text or ""
+                if part_text:
+                    final_text = part_text
 
         return final_text
 
@@ -131,9 +139,7 @@ class LifeSaverOrchestrator:
         """
         Run triage on the first user message.
         """
-        ctx.events.append(
-            {"type": "user_message", "content": user_message}
-        )
+        ctx.events.append({"type": "user_message", "content": user_message})
 
         triage_text = self._run_and_get_text(
             runner=self.triage_runner,
@@ -216,6 +222,7 @@ class LifeSaverOrchestrator:
             {"type": "instruction_output_raw", "content": instruction_text}
         )
 
+        # For now, just move to next step in the protocol
         next_step_index = min(ctx.current_step_index + 1, len(steps) - 1)
         done = next_step_index == len(steps) - 1
         instruction_message = steps[next_step_index]
@@ -239,6 +246,7 @@ class LifeSaverOrchestrator:
         ctx.events.append(
             {"type": "calming_output_raw", "content": calming_message}
         )
+
         if not calming_message or not calming_message.strip():
             calming_message = (
                 "You’re doing the right thing. Keep going with the current step; "
