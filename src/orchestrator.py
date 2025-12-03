@@ -123,9 +123,9 @@ class LifeSaverOrchestrator:
 
         for event in runner.run(
             user_id=session_id,
-            session_id=session_id,
             new_message=content,
         ):
+
             if event.is_final_response() and event.content and event.content.parts:
                 part_text = event.content.parts[0].text or ""
                 if part_text:
